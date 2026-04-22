@@ -9,6 +9,7 @@ Run:
 """
 from __future__ import annotations
 
+import os
 import json
 import logging
 from pathlib import Path
@@ -32,8 +33,11 @@ def _get_model() -> OpenAIServerModel:
         (Path("~/.claude/settings.json").expanduser()).read_text()
     )
     env = settings["env"]
+    default_model_id = os.environ.get("ANTHROPIC_DEFAULT_MODEL",
+                                      "claude-sonnet-4-6")
+    model_id = env.get("ANTHROPIC_DEFAULT_SONNET_MODEL", default_model_id)
     return OpenAIServerModel(
-        model_id=env["ANTHROPIC_DEFAULT_SONNET_MODEL"],
+        model_id=model_id,
         api_base=env["ANTHROPIC_BASE_URL"],
         api_key=env["ANTHROPIC_AUTH_TOKEN"],
     )
