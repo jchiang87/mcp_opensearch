@@ -2,13 +2,15 @@ import os
 import json
 import functools
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 from opensearchpy import OpenSearch
 from smolagents import Tool
 
 
 __all__ = (
     "FlexibleSearchTool",
+    "GetIndexInfoTool",
+    "GetIndexMappingsTool",
 )
 
 
@@ -50,11 +52,68 @@ def get_opensearch_client(wms="panda"):
 OPENSEARCH_CLIENT = get_opensearch_client()
 
 
+def _get_index_info(index: str="*") -> list[dict[str, Any]]:
+    return OPENSEARCH_CLIENT.cat.indices(index=index, format="json")
+
+
+class GetIndexInfoTool(Tool):
+    name = "get_index_info"
+    description = (
+        "Get information related to indexes: how much disk space "
+        "they are using, how many shards they have, their health status, "
+        "and so on."
+    )
+    inputs = {
+        "index": {
+            "type": "string",
+            "description": ("OpenSearch index to query "
+                            "(e.g. 'panda_prod_test-2026-04')."),
+            "nullable": True,
+        },
+    }
+    output_type = "array"
+
+    @track_calls("get_index_info")
+    def forward(
+        self,
+        index: str = "*",
+    ) -> list[dict[str, Any]]:
+        return _get_index_info(index=index)
+
+
+def _get_index_mappings(index: str="*") -> dict[str: dict[str: dict[str: Any]]]:
+    return OPENSEARCH_CLIENT.indices.get_mapping(index=index)
+
+
+class GetIndexMappingsTool(Tool):
+    name = "get_index_mappings"
+    description = (
+        "Get mappings for one or more indexes, e.g., for properties, "
+        "dynamic_templates, date_detection, numeric_detection, and so on."
+    )
+    inputs = {
+        "index": {
+            "type": "string",
+            "description": ("OpenSearch index to query "
+                            "(e.g. 'panda_prod_test-2026-04')."),
+            "nullable": True,
+        },
+    }
+    output_type = "object"
+
+    @track_calls("get_index_mappings")
+    def forward(
+        self,
+        index: str = "*",
+    ) -> list[dict[str, Any]]:
+        return _get_index_mappings(index=index)
+
+
 def _flexible_search(
     index: str,
-    query: Dict[str, Any],
+    query: dict[str, Any],
     limit: int = 10,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Helper for flexible OpenSearch queries supporting
     exact match, set membership, and range filters.
 
@@ -139,7 +198,7 @@ class FlexibleSearchTool(Tool):
     def forward(
         self,
         index: str,
-        query: Dict[str, Any],
+        query: dict[str, Any],
         limit: int = 10,
     ) -> str:
         result = _flexible_search(index, query, limit)

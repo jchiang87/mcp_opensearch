@@ -19,6 +19,8 @@ from smolagents import CodeAgent, OpenAIServerModel
 
 from .opensearch_tools import (
     FlexibleSearchTool,
+    GetIndexInfoTool,
+    GetIndexMappingsTool,
 )
 
 logging.getLogger("smolagents").setLevel(logging.FATAL)
@@ -57,6 +59,8 @@ def _get_agent() -> CodeAgent:
 
     tools = [
         FlexibleSearchTool(),
+        GetIndexInfoTool(),
+        GetIndexMappingsTool(),
     ]
 
     _agent = CodeAgent(
