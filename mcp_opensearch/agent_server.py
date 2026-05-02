@@ -18,6 +18,7 @@ from mcp.server.fastmcp import FastMCP
 from smolagents import CodeAgent, OpenAIServerModel
 
 from .opensearch_tools import (
+    AggregationTool,
     FlexibleSearchTool,
     GetIndexInfoTool,
     GetIndexMappingsTool,
@@ -58,6 +59,7 @@ def _get_agent() -> CodeAgent:
         return _agent
 
     tools = [
+        AggregationTool(),
         FlexibleSearchTool(),
         GetIndexInfoTool(),
         GetIndexMappingsTool(),

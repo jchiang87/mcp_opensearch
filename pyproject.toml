@@ -13,5 +13,8 @@ dependencies = [
     "opensearch-py",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest"]
+
 [project.scripts]
 mcp-opensearch = "mcp_opensearch.agent_server:run"
