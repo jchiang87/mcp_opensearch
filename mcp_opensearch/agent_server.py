@@ -16,7 +16,7 @@ from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 from smolagents import CodeAgent, OpenAIServerModel
-
+from .log_tools import failed_job_log_summaries, retried_job_log_summaries
 from .opensearch_tools import (
     AggregationTool,
     FlexibleSearchTool,
@@ -59,6 +59,8 @@ def _get_agent() -> CodeAgent:
         return _agent
 
     tools = [
+        failed_job_log_summaries,
+        retried_job_log_summaries,
         AggregationTool(),
         FlexibleSearchTool(),
         GetIndexInfoTool(),
@@ -70,12 +72,32 @@ def _get_agent() -> CodeAgent:
         tools=tools,
         additional_authorized_imports=["json", "pandas"],
         name="opensearch_agent",
-        description="Searches and manages WMS job data in an OpenSearch cluster.",
-        instructions=(
-            "Search WMS job records in OpenSearch, retrieve logs, and index or update documents. "
-            "Answer concisely with relevant job counts, statuses, and summaries."
-        ),
-        verbosity_level=0,
+        description=("Searches and manages WMS job data in an "
+                     "OpenSearch cluster."),
+        instructions="""
+        Search WMS job records in OpenSearch for the user-requested
+        information.  For HTCondor jobs, use the htcondor-history-v1
+        index, while for PanDA jobs, use the indexes of the form
+        panda-<year>-<month>.  Answer concisely with relevant job
+        counts, statuses, and summaries.
+
+        When asked to investigate log files for failed or retried jobs,
+        perform the following workflow:
+        1. For failed jobs, call the tool
+           `failed_job_log_summaries(JobBatchId, nsamp=50)`, adjusting
+           the value of nsamp, if requested.
+        2. For retried jobs, call the tool
+           `retried_job_log_summaries(JobBatchId, nsamp=100)`, adjusting
+           the value of nsamp, if requested.
+        3. The keys of the returned dict will be the bps_job_labels that
+           have failed jobsm and the values of the dict will be summaries of
+           the error messages extracted from the log files.
+        4. For each bps_job_label, examine the error messages and flag any
+           patterns.
+        5. Provide a concise summary of any failure patterns, aggregated by
+           bps_job_label.
+        """,
+        verbosity_level=1,
     )
     return _agent
 
