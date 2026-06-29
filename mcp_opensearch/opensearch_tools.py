@@ -1,11 +1,10 @@
 import os
 import json
-import functools
 from pathlib import Path
 from typing import Any
 from opensearchpy import OpenSearch, helpers
 from smolagents import Tool
-
+from .utils import track_calls
 
 __all__ = (
     "AggregationTool",
@@ -13,27 +12,6 @@ __all__ = (
     "GetIndexInfoTool",
     "GetIndexMappingsTool",
 )
-
-
-STATS_FILE = Path.cwd() / "tool_call_counts.json"
-
-
-def track_calls(tool_name: str):
-    def decorator(fn):
-        @functools.wraps(fn)
-        def wrapper(*args, **kwargs):
-            try:
-                counts = (json.loads(STATS_FILE.read_text())
-                          if STATS_FILE.exists() else {})
-            except (json.JSONDecodeError, OSError):
-                counts = {}
-            counts[tool_name] = counts.get(tool_name, 0) + 1
-            tmp = STATS_FILE.with_suffix(".tmp")
-            tmp.write_text(json.dumps(counts, indent=2))
-            os.replace(tmp, STATS_FILE)
-            return fn(*args, **kwargs)
-        return wrapper
-    return decorator
 
 
 def get_opensearch_client(wms="panda"):
@@ -49,6 +27,7 @@ def get_opensearch_client(wms="panda"):
                       http_compress=True, http_auth=(wms, config["secret"]),
                       use_ssl=True, verify_certs=True,
                       ssl_assert_hostname=False, ssl_show_warn=False)
+
 
 OPENSEARCH_CLIENT = get_opensearch_client()
 
