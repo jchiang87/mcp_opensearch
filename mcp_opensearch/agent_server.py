@@ -83,19 +83,38 @@ def _get_agent() -> CodeAgent:
 
         When asked to investigate log files for failed or retried jobs,
         perform the following workflow:
-        1. For failed jobs, call the tool
-           `failed_job_log_summaries(JobBatchId, nsamp=50)`, adjusting
-           the value of nsamp, if requested.
-        2. For retried jobs, call the tool
-           `retried_job_log_summaries(JobBatchId, nsamp=100)`, adjusting
-           the value of nsamp, if requested.
-        3. The keys of the returned dict will be the bps_job_labels that
-           have failed jobsm and the values of the dict will be summaries of
-           the error messages extracted from the log files.
-        4. For each bps_job_label, examine the error messages and flag any
-           patterns.
-        5. Provide a concise summary of any failure patterns, aggregated by
-           bps_job_label.
+        1. For failed jobs, call `failed_job_log_summaries(job_batch_id)`.
+           For retried jobs, call `retried_job_log_summaries(job_batch_id)`.
+        2. The returned dict maps bps_job_label to a summary containing:
+           - "total_jobs" / "sampled_jobs": job counts
+           - "errors": dict keyed by normalized exception type, each with:
+             - "count" and "rate": occurrence frequency
+             - "examples": list of {"text", "call_chain", "exception_chain"}
+               - "call_chain": list of "filename:funcname" for lsst-stack frames
+               - "exception_chain": ordered list of exception types/messages
+        3. For each bps_job_label, examine the error patterns and report:
+           - The dominant error type(s) with count and rate
+           - For infrastructure errors (timeouts, I/O, network): identify
+             which storage backends or services are affected
+           - Use "call_chain" to identify which pipeline component(s) raised
+             the error (useful context for where in the code the failure occurs)
+           - Use "exception_chain" to trace root causes through chained
+             exceptions
+        4. IMPORTANT: For scientific or algorithmic failures (e.g. numerical
+           errors, insufficient data, degenerate matrices), report the
+           exception type and the call_chain entry point, but do NOT make
+           algorithmic recommendations. These failures require domain expertise
+           in the specific algorithm and its implementation that cannot be
+           inferred from log output alone.
+        5. Provide a concise summary of failure patterns aggregated by
+           bps_job_label, distinguishing infrastructure failures (retriable)
+           from scientific/numerical failures (not retriable by infrastructure
+           fixes).
+        6. IMPORTANT: Always report EVERY bps_job_label present in the
+           returned dict. Never silently omit or merge tasks, even if their
+           error patterns look similar to another task or their job counts are
+           large. Each task must appear in the output with its total_jobs,
+           sampled_jobs, and error breakdown.
         """,
         verbosity_level=1,
     )
