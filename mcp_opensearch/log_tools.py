@@ -6,11 +6,18 @@ from htc_job_history import get_os_job_info
 from smolagents import tool
 from .utils import track_calls
 
+_MEM_PRESSURE_THRESHOLD = 0.9
 
-__all__ = (
-    "failed_job_log_summaries",
-    "retried_job_log_summaries",
-)
+
+def _to_float(val, default=0.0) -> float:
+    try:
+        f = float(val)
+        return default if f != f else f  # f != f catches NaN
+    except (TypeError, ValueError):
+        return default
+
+
+__all__ = ("retried_job_log_summaries",)
 
 # --- log parsing ---
 
@@ -27,6 +34,8 @@ _NUM = re.compile(r'\b\d+\b')                   # bare integers → <N>
 
 # Skip these exception classes; they are uninformative wrappers.
 _SKIP_EXC = frozenset({'MPGraphExecutorError'})
+
+_TIMESTAMP = re.compile(r'\b(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?)')
 
 _MAX_BLOCK_LINES = 200  # cap per ERROR block to bound memory; covers deepest tracebacks
 _KEY_MAX_LEN = 200
@@ -65,13 +74,16 @@ def _extract_exception_chain(lines: list[str]) -> list[str]:
     return result
 
 
-def _parse_block(lines: list[str]) -> tuple[str, str, list[str], list[str]] | None:
-    """Return (error_key, block_text, call_chain, exception_chain) from an ERROR block,
+def _parse_block(lines: list[str]) -> tuple[str, str, str | None, list[str], list[str]] | None:
+    """Return (error_key, block_text, timestamp, call_chain, exception_chain) from an ERROR block,
     or None to discard."""
     if not lines:
         return None
     text = ''.join(lines).rstrip()
     first = lines[0]
+
+    tm = _TIMESTAMP.search(first)
+    timestamp = tm.group(1) if tm else None
 
     # Prefer the inline exception on the first ERROR line (single_quantum_executor style).
     m = _EXC_INLINE.search(first)
@@ -96,11 +108,11 @@ def _parse_block(lines: list[str]) -> tuple[str, str, list[str], list[str]] | No
     key = f"{exc_type.split('.')[-1]}: {_normalize(exc_msg)}"
     call_chain = _extract_call_chain(lines)
     exc_chain = _extract_exception_chain(lines)
-    return key, text, call_chain, exc_chain
+    return key, text, timestamp, call_chain, exc_chain
 
 
-def _extract_errors(file_path: str) -> list[tuple[str, str, list[str], list[str]]]:
-    """Stream through a log file and return list of (error_key, block_text, call_chain, exc_chain)."""
+def _extract_errors(file_path: str) -> list[tuple[str, str, str | None, list[str], list[str]]]:
+    """Stream through a log file and return list of (error_key, block_text, timestamp, call_chain, exc_chain)."""
     results = []
     block: list[str] = []
     in_error = False
@@ -134,33 +146,58 @@ def job_log_summaries(
     last_log_index: int = -1,
     max_examples: int = 3,
     max_jobs: int = 500,
-) -> dict[str, dict]:
+) -> dict:
     """Scan job logs and tabulate error types with examples, per bps_job_label.
 
     If a task has more matching jobs than max_jobs, a random sample of
     max_jobs is read. Counts and rates then reflect the sample.
 
     Returns:
-        dict[bps_job_label -> {
-            "total_jobs":   int,   # total matching jobs from OpenSearch
-            "sampled_jobs": int,   # jobs actually read (< total_jobs when sampled)
-            "errors": {
-                error_key: {
-                    "count": int,
-                    "rate": float,
-                    "examples": list[{
-                        "text": str,
-                        "call_chain": list[str],
-                        "exception_chain": list[str],
-                    }]
+        {
+            "job_batch_name": str | None,  # HTCondor JobBatchName for the workflow
+            "bps_run":        str | None,  # BPS run identifier (includes DM ticket)
+            "tasks": {
+                bps_job_label: {
+                    "total_jobs":        int,
+                    "sampled_jobs":      int,
+                    "resource_exhaustion": {
+                        "signal_kills":    {"count": int, "rate": float,
+                                            "example_jobs": list[str]},
+                        "memory_pressure": {"count": int, "rate": float,
+                                            "threshold": float,
+                                            "examples": list[{"job": str,
+                                                "memory_usage_mb": int,
+                                                "request_memory_mb": int,
+                                                "ratio": float}]},
+                    },
+                    "example_log_paths": list[str],  # up to max_examples representative paths
+                    "errors": {
+                        error_key: {
+                            "count": int,
+                            "rate": float,
+                            "host_counts": dict[str, int],  # hostname -> count; empty if unavailable
+                            "examples": list[{
+                                "text": str,
+                                "timestamp": str | None,  # ISO 8601 from the ERROR line
+                                "call_chain": list[str],
+                                "exception_chain": list[str],
+                            }]
+                        }
+                    }
                 }
             }
-        }]
+        }
         rate = count / sampled_jobs (an unbiased estimate of the true rate).
+        host_counts are sorted descending by count; hostname is derived from
+        LastRemoteHost with the slot prefix stripped (e.g. "slot1@host" -> "host").
     """
     df0 = get_os_job_info(job_batch_id, index=index).query(query)
+
+    job_batch_name = df0['JobBatchName'].iloc[0] if len(df0) > 0 and 'JobBatchName' in df0.columns else None
+    bps_run = df0['bps_run'].iloc[0] if len(df0) > 0 and 'bps_run' in df0.columns else None
+
     tasks = sorted(set(df0['bps_job_label']))
-    result = {}
+    task_results = {}
 
     for task in tasks:
         df = df0.query(f"bps_job_label=='{task}'")
@@ -170,9 +207,29 @@ def job_log_summaries(
         n_sampled = len(df)
 
         counts: dict[str, int] = defaultdict(int)
+        host_counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
         examples: dict[str, list[dict]] = defaultdict(list)
+        example_log_paths: list[str] = []
+        signal_kills: list[str] = []
+        mem_pressure: list[dict] = []
+        has_host = 'LastRemoteHost' in df.columns
+        has_signal = 'ExitBySignal' in df.columns
+        has_memory = 'MemoryUsage' in df.columns and 'RequestMemory' in df.columns
 
         for _, row in df.iterrows():
+            if has_signal and row.get('ExitBySignal') == True:  # noqa: E712
+                signal_kills.append(str(row.get('GlobalJobId', '')))
+            if has_memory:
+                mem_use = _to_float(row.get('MemoryUsage'))
+                req_mem = _to_float(row.get('RequestMemory'))
+                if req_mem > 0 and mem_use / req_mem > _MEM_PRESSURE_THRESHOLD:
+                    mem_pressure.append({
+                        'job': str(row.get('GlobalJobId', '')),
+                        'memory_usage_mb': int(mem_use),
+                        'request_memory_mb': int(req_mem),
+                        'ratio': round(mem_use / req_mem, 3),
+                    })
+
             tokens = row['Err'].split('.')
             tokens[-2] = '*'
             pattern = os.path.join(row['Iwd'], '.'.join(tokens))
@@ -183,78 +240,69 @@ def job_log_summaries(
             if not os.path.isfile(log_path):
                 continue
 
+            if len(example_log_paths) < max_examples:
+                example_log_paths.append(log_path)
+
+            raw_host = (row['LastRemoteHost'] or '') if has_host else ''
+            host = raw_host.split('@', 1)[-1] if '@' in raw_host else raw_host
+
             # Count each distinct error key at most once per job file; keep
             # the longest block as the example (prefers full tracebacks over
             # the single-line single_quantum_executor ERROR entries).
-            best: dict[str, tuple[str, list[str], list[str]]] = {}
-            for key, text, call_chain, exc_chain in _extract_errors(log_path):
+            best: dict[str, tuple[str, str | None, list[str], list[str]]] = {}
+            for key, text, timestamp, call_chain, exc_chain in _extract_errors(log_path):
                 if key not in best or len(text) > len(best[key][0]):
-                    best[key] = (text, call_chain, exc_chain)
+                    best[key] = (text, timestamp, call_chain, exc_chain)
 
-            for key, (text, call_chain, exc_chain) in best.items():
+            for key, (text, timestamp, call_chain, exc_chain) in best.items():
                 counts[key] += 1
+                if host:
+                    host_counts[key][host] += 1
                 if len(examples[key]) < max_examples:
                     examples[key].append({
                         "text": text,
+                        "timestamp": timestamp,
                         "call_chain": call_chain,
                         "exception_chain": exc_chain,
                     })
 
-        result[task] = {
+        task_results[task] = {
             "total_jobs": total,
             "sampled_jobs": n_sampled,
+            "resource_exhaustion": {
+                "signal_kills": {
+                    "count": len(signal_kills),
+                    "rate": round(len(signal_kills) / n_sampled, 3) if n_sampled else 0,
+                    "example_jobs": signal_kills[:max_examples],
+                },
+                "memory_pressure": {
+                    "count": len(mem_pressure),
+                    "rate": round(len(mem_pressure) / n_sampled, 3) if n_sampled else 0,
+                    "threshold": _MEM_PRESSURE_THRESHOLD,
+                    "examples": sorted(mem_pressure, key=lambda x: -x['ratio'])[:max_examples],
+                },
+            },
+            "example_log_paths": example_log_paths,
             "errors": {
                 key: {
                     "count": counts[key],
                     "rate": round(counts[key] / n_sampled, 3),
+                    "host_counts": dict(sorted(host_counts[key].items(),
+                                               key=lambda x: -x[1])),
                     "examples": examples[key],
                 }
                 for key in sorted(counts, key=lambda k: -counts[k])
             },
         }
 
-    return result
+    return {
+        "job_batch_name": job_batch_name,
+        "bps_run": bps_run,
+        "tasks": task_results,
+    }
 
 
 # --- public tools ---
-
-@tool
-@track_calls("failed_job_log_summaries")
-def failed_job_log_summaries(
-        job_batch_id: str,
-        index: str = 'htcondor-history-v1',
-        max_examples: int = 3,
-        max_jobs: int = 500,
-) -> dict:
-    """Return tabulated error summaries for failed jobs in a batch.
-
-    Reads up to max_jobs log files per bps_job_label (random sample if more
-    exist), groups errors by normalized exception type, and returns counts
-    with representative examples.
-
-    Args:
-        job_batch_id: The JobBatchId for the cluster.
-        index: OpenSearch index. Default: 'htcondor-history-v1'
-        max_examples: Max example error blocks per error type. Default: 3
-        max_jobs: Max log files to read per task; random sample applied when
-            exceeded. Default: 500
-
-    Returns:
-        dict mapping bps_job_label -> {
-            "total_jobs": int,
-            "sampled_jobs": int,
-            "errors": {error_key: {
-                "count": int, "rate": float,
-                "examples": list[{"text": str, "call_chain": list[str],
-                                  "exception_chain": list[str]}]
-            }}
-        }
-        rate = count / sampled_jobs (estimated true rate when sampled).
-    """
-    return job_log_summaries(job_batch_id, index, "ExitCode != 0",
-                             last_log_index=-1, max_examples=max_examples,
-                             max_jobs=max_jobs)
-
 
 @tool
 @track_calls("retried_job_log_summaries")
@@ -266,8 +314,10 @@ def retried_job_log_summaries(
 ) -> dict:
     """Return tabulated error summaries for retried jobs in a batch.
 
-    Like failed_job_log_summaries but for jobs with NumJobStarts > 1,
-    reading the second-to-last log file to capture the failing retry attempt.
+    Targets jobs with NumJobStarts > 1, reading the second-to-last log file
+    to capture the failing retry attempt. This surfaces transient failures
+    (e.g. infrastructure errors) that would be invisible in a failed-only
+    query when the job ultimately succeeded on retry.
 
     Args:
         job_batch_id: The JobBatchId for the cluster.
@@ -277,16 +327,23 @@ def retried_job_log_summaries(
             exceeded. Default: 500
 
     Returns:
-        dict mapping bps_job_label -> {
-            "total_jobs": int,
-            "sampled_jobs": int,
-            "errors": {error_key: {
-                "count": int, "rate": float,
-                "examples": list[{"text": str, "call_chain": list[str],
-                                  "exception_chain": list[str]}]
+        {
+            "job_batch_name": str | None,
+            "bps_run": str | None,
+            "tasks": {bps_job_label: {
+                "total_jobs": int, "sampled_jobs": int,
+                "example_log_paths": list[str],
+                "errors": {error_key: {
+                    "count": int, "rate": float,
+                    "host_counts": dict[str, int],
+                    "examples": list[{"text": str, "timestamp": str | None,
+                                      "call_chain": list[str],
+                                      "exception_chain": list[str]}]
+                }}
             }}
         }
         rate = count / sampled_jobs (estimated true rate when sampled).
+        host_counts maps hostname (slot prefix stripped) to occurrence count.
     """
     return job_log_summaries(job_batch_id, index, "NumJobStarts > 1",
                              last_log_index=-2, max_examples=max_examples,

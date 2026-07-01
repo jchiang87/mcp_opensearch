@@ -16,7 +16,8 @@ from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 from smolagents import CodeAgent, OpenAIServerModel
-from .log_tools import failed_job_log_summaries, retried_job_log_summaries
+from .log_tools import retried_job_log_summaries
+from .report_tools import format_log_summary_report, write_report
 from .opensearch_tools import (
     AggregationTool,
     FlexibleSearchTool,
@@ -59,8 +60,9 @@ def _get_agent() -> CodeAgent:
         return _agent
 
     tools = [
-        failed_job_log_summaries,
         retried_job_log_summaries,
+        format_log_summary_report,
+        write_report,
         AggregationTool(),
         FlexibleSearchTool(),
         GetIndexInfoTool(),
@@ -81,40 +83,67 @@ def _get_agent() -> CodeAgent:
         panda-<year>-<month>.  Answer concisely with relevant job
         counts, statuses, and summaries.
 
-        When asked to investigate log files for failed or retried jobs,
-        perform the following workflow:
-        1. For failed jobs, call `failed_job_log_summaries(job_batch_id)`.
-           For retried jobs, call `retried_job_log_summaries(job_batch_id)`.
-        2. The returned dict maps bps_job_label to a summary containing:
-           - "total_jobs" / "sampled_jobs": job counts
-           - "errors": dict keyed by normalized exception type, each with:
-             - "count" and "rate": occurrence frequency
-             - "examples": list of {"text", "call_chain", "exception_chain"}
-               - "call_chain": list of "filename:funcname" for lsst-stack frames
-               - "exception_chain": ordered list of exception types/messages
-        3. For each bps_job_label, examine the error patterns and report:
-           - The dominant error type(s) with count and rate
-           - For infrastructure errors (timeouts, I/O, network): identify
-             which storage backends or services are affected
-           - Use "call_chain" to identify which pipeline component(s) raised
-             the error (useful context for where in the code the failure occurs)
-           - Use "exception_chain" to trace root causes through chained
-             exceptions
-        4. IMPORTANT: For scientific or algorithmic failures (e.g. numerical
-           errors, insufficient data, degenerate matrices), report the
-           exception type and the call_chain entry point, but do NOT make
-           algorithmic recommendations. These failures require domain expertise
-           in the specific algorithm and its implementation that cannot be
-           inferred from log output alone.
-        5. Provide a concise summary of failure patterns aggregated by
-           bps_job_label, distinguishing infrastructure failures (retriable)
-           from scientific/numerical failures (not retriable by infrastructure
-           fixes).
-        6. IMPORTANT: Always report EVERY bps_job_label present in the
-           returned dict. Never silently omit or merge tasks, even if their
-           error patterns look similar to another task or their job counts are
-           large. Each task must appear in the output with its total_jobs,
-           sampled_jobs, and error breakdown.
+        When asked to investigate job logs for a batch, perform the following
+        workflow:
+
+        STEP 1 — Fetch the log summary:
+          Call `retried_job_log_summaries(job_batch_id)`. This targets jobs
+          with NumJobStarts > 1, reading the second-to-last log to capture
+          failing retry attempts. It surfaces transient infrastructure failures
+          that would be invisible if only finally-failed jobs were examined.
+          IMPORTANT: always use this tool for log access — never locate or
+          read log files directly via the filesystem.
+
+        STEP 2 — Render the structural skeleton:
+          Call `format_log_summary_report(summary, job_batch_id, log_type="retried")`.
+          This produces four labelled
+          sections: REPORT HEADER, TASKS WITH NO ERRORS, PER-TASK ERROR DATA,
+          and SUMMARY TABLE.
+
+        STEP 3 — Assemble the final report in this fixed order:
+          a. [paste REPORT HEADER section verbatim]
+          b. OVERVIEW — a short paragraph summarising how many tasks were
+             analysed, how many had errors, and the top-level picture.
+          c. [paste TASKS WITH NO ERRORS section verbatim]
+          d. Failure sections — one section per failure category. Standard
+             categories are "INFRASTRUCTURE FAILURES (RETRIABLE)" and
+             "SCIENTIFIC / ALGORITHMIC FAILURES (NOT RETRIABLE)". Add extra
+             categories for anomalies that don't fit either (e.g.
+             "CONFIGURATION ERRORS", "UNCLASSIFIED FAILURES"). For each
+             category:
+             - Write a brief narrative: root cause, affected services or
+               components, and whether the pattern is novel or unexpected.
+             - For infrastructure failures, note the error time range and flag
+               it as useful for correlating with known incidents or maintenance
+               windows. If timestamps are absent, note that timing is
+               unavailable.
+             - For scientific/algorithmic failures, report the exception type
+               and call_chain entry point but do NOT make algorithmic
+               recommendations — these require domain expertise beyond what
+               log output alone can provide.
+             - For each affected task, paste its per-task block verbatim from
+               the PER-TASK ERROR DATA section.
+             - If an error's host_counts show that failures are concentrated on
+               one or a few nodes (e.g. >50% of errors from a single host),
+               flag this as a potential bad-node issue worth investigating.
+             - If a task's per-task block shows non-zero signal kills or memory
+               pressure, include a "RESOURCE EXHAUSTION" section for that task.
+          e. [paste SUMMARY TABLE section verbatim]
+          f. KEY FINDINGS — bullet list of the most important observations,
+             distinguishing retriable from non-retriable failures and flagging
+             any anomalies.
+
+        STEP 4 — Write the report to a file:
+          Call `write_report(report_text=<assembled_report>, job_batch_id=<id>)`.
+          This writes the file and returns its absolute path. Confirm the path
+          in your final response.
+
+        IMPORTANT — coverage and fidelity:
+          - Every bps_job_label in "tasks" must appear in the report. Never
+            silently omit or merge tasks, even if their error patterns look
+            similar or their job counts are large.
+          - Paste the formatter's sections verbatim; do not reformat or
+            summarise them. The consistent layout is intentional.
         """,
         verbosity_level=0,
     )
