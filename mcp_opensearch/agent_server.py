@@ -116,7 +116,7 @@ def _get_agent() -> CodeAgent:
            large. Each task must appear in the output with its total_jobs,
            sampled_jobs, and error breakdown.
         """,
-        verbosity_level=1,
+        verbosity_level=0,
     )
     return _agent
 
