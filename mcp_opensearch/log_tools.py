@@ -230,6 +230,32 @@ def job_log_summaries(
                         'ratio': round(mem_use / req_mem, 3),
                     })
 
+            raw_host = (row['LastRemoteHost'] or '') if has_host else ''
+            host = raw_host.split('@', 1)[-1] if '@' in raw_host else raw_host
+
+            # Synthesize an error entry for ExitCode 137 (SIGKILL) before
+            # attempting log file lookup: SIGKILL'd jobs often have no log
+            # file, and without this the failure would be silently dropped.
+            if has_exit_code and int(row.get('ExitCode', 0) or 0) == 137:
+                mem_use = _to_float(row.get('MemoryUsage')) if has_provisioned else 0.0
+                prov_mem = _to_float(row.get('MemoryProvisioned')) if has_provisioned else 0.0
+                mem_note = (f" mem={int(mem_use)}/{int(prov_mem)}MB"
+                            f" ({mem_use/prov_mem:.0%})"
+                            if prov_mem > 0 else "")
+                is_oom = prov_mem > 0 and mem_use / prov_mem > _MEM_PRESSURE_THRESHOLD
+                sigkill_key = ("OOMKill: ExitCode 137" if is_oom
+                               else "SIGKILL: ExitCode 137")
+                counts[sigkill_key] += 1
+                if host:
+                    host_counts[sigkill_key][host] += 1
+                if len(examples[sigkill_key]) < max_examples:
+                    examples[sigkill_key].append({
+                        "text": f"{sigkill_key}{mem_note}",
+                        "timestamp": None,
+                        "call_chain": [],
+                        "exception_chain": [],
+                    })
+
             tokens = row['Err'].split('.')
             tokens[-2] = '*'
             pattern = os.path.join(row['Iwd'], '.'.join(tokens))
@@ -243,9 +269,6 @@ def job_log_summaries(
             if len(example_log_paths) < max_examples:
                 example_log_paths.append(log_path)
 
-            raw_host = (row['LastRemoteHost'] or '') if has_host else ''
-            host = raw_host.split('@', 1)[-1] if '@' in raw_host else raw_host
-
             # Count each distinct error key at most once per job file; keep
             # the longest block as the example (prefers full tracebacks over
             # the single-line single_quantum_executor ERROR entries).
@@ -253,21 +276,6 @@ def job_log_summaries(
             for key, text, timestamp, call_chain, exc_chain in _extract_errors(log_path):
                 if key not in best or len(text) > len(best[key][0]):
                     best[key] = (text, timestamp, call_chain, exc_chain)
-
-            # Synthesize an error entry for ExitCode 137 (SIGKILL). No ERROR
-            # lines appear in the log when the OS kills the process, so this
-            # is the only way to surface these failures in the errors dict.
-            if has_exit_code and int(row.get('ExitCode', 0) or 0) == 137:
-                mem_use = _to_float(row.get('MemoryUsage')) if has_provisioned else 0.0
-                prov_mem = _to_float(row.get('MemoryProvisioned')) if has_provisioned else 0.0
-                mem_note = (f" mem={int(mem_use)}/{int(prov_mem)}MB"
-                            f" ({mem_use/prov_mem:.0%})"
-                            if prov_mem > 0 else "")
-                is_oom = prov_mem > 0 and mem_use / prov_mem > _MEM_PRESSURE_THRESHOLD
-                sigkill_key = ("OOMKill: ExitCode 137" if is_oom
-                               else "SIGKILL: ExitCode 137")
-                if sigkill_key not in best:
-                    best[sigkill_key] = (f"{sigkill_key}{mem_note}", None, [], [])
 
             for key, (text, timestamp, call_chain, exc_chain) in best.items():
                 counts[key] += 1
