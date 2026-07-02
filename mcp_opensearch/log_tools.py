@@ -213,6 +213,8 @@ def job_log_summaries(
         has_host = 'LastRemoteHost' in df.columns
         has_signal = 'ExitBySignal' in df.columns
         has_memory = 'MemoryUsage' in df.columns and 'RequestMemory' in df.columns
+        has_exit_code = 'ExitCode' in df.columns
+        has_provisioned = 'MemoryUsage' in df.columns and 'MemoryProvisioned' in df.columns
 
         for _, row in df.iterrows():
             if has_signal and row.get('ExitBySignal') == True:  # noqa: E712
@@ -251,6 +253,21 @@ def job_log_summaries(
             for key, text, timestamp, call_chain, exc_chain in _extract_errors(log_path):
                 if key not in best or len(text) > len(best[key][0]):
                     best[key] = (text, timestamp, call_chain, exc_chain)
+
+            # Synthesize an error entry for ExitCode 137 (SIGKILL). No ERROR
+            # lines appear in the log when the OS kills the process, so this
+            # is the only way to surface these failures in the errors dict.
+            if has_exit_code and int(row.get('ExitCode', 0) or 0) == 137:
+                mem_use = _to_float(row.get('MemoryUsage')) if has_provisioned else 0.0
+                prov_mem = _to_float(row.get('MemoryProvisioned')) if has_provisioned else 0.0
+                mem_note = (f" mem={int(mem_use)}/{int(prov_mem)}MB"
+                            f" ({mem_use/prov_mem:.0%})"
+                            if prov_mem > 0 else "")
+                is_oom = prov_mem > 0 and mem_use / prov_mem > _MEM_PRESSURE_THRESHOLD
+                sigkill_key = ("OOMKill: ExitCode 137" if is_oom
+                               else "SIGKILL: ExitCode 137")
+                if sigkill_key not in best:
+                    best[sigkill_key] = (f"{sigkill_key}{mem_note}", None, [], [])
 
             for key, (text, timestamp, call_chain, exc_chain) in best.items():
                 counts[key] += 1
