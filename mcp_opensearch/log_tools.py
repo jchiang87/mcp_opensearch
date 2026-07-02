@@ -154,7 +154,6 @@ def job_log_summaries(
 
     Returns:
         {
-            "job_batch_name": str | None,  # HTCondor JobBatchName for the workflow
             "bps_run":        str | None,  # BPS run identifier (includes DM ticket)
             "tasks": {
                 bps_job_label: {
@@ -193,7 +192,6 @@ def job_log_summaries(
     """
     df0 = get_os_job_info(job_batch_id, index=index).query(query)
 
-    job_batch_name = df0['JobBatchName'].iloc[0] if len(df0) > 0 and 'JobBatchName' in df0.columns else None
     bps_run = df0['bps_run'].iloc[0] if len(df0) > 0 and 'bps_run' in df0.columns else None
 
     tasks = sorted(set(df0['bps_job_label']))
@@ -296,7 +294,6 @@ def job_log_summaries(
         }
 
     return {
-        "job_batch_name": job_batch_name,
         "bps_run": bps_run,
         "tasks": task_results,
     }
@@ -328,7 +325,6 @@ def retried_job_log_summaries(
 
     Returns:
         {
-            "job_batch_name": str | None,
             "bps_run": str | None,
             "tasks": {bps_job_label: {
                 "total_jobs": int, "sampled_jobs": int,
