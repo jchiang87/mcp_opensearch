@@ -36,8 +36,10 @@ _NUM = re.compile(r'\b\d+\b')                   # bare integers → <N>
 _SKIP_EXC = frozenset({'MPGraphExecutorError'})
 
 _TIMESTAMP = re.compile(r'\b(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?)')
+_BPS_EXIT = re.compile(r'^Command exited with code:\s*(\d+)')
 
 _MAX_BLOCK_LINES = 200  # cap per ERROR block to bound memory; covers deepest tracebacks
+_BPS_EXIT_CONTEXT = 5   # lines of context to include before the exit code line
 _KEY_MAX_LEN = 200
 
 
@@ -116,9 +118,19 @@ def _extract_errors(file_path: str) -> list[tuple[str, str, str | None, list[str
     results = []
     block: list[str] = []
     in_error = False
+    prev_lines: list[str] = []
     try:
         with open(file_path) as fobj:
             for line in fobj:
+                m = _BPS_EXIT.match(line)
+                if m:
+                    code = int(m.group(1))
+                    if code != 0:
+                        context = ''.join(prev_lines[-_BPS_EXIT_CONTEXT:]) + line
+                        results.append((
+                            f"SIGKILL: exit code {code}",
+                            context.rstrip(), None, [], [],
+                        ))
                 if _LOG_TAG.match(line):
                     if in_error and block:
                         parsed = _parse_block(block)
@@ -128,6 +140,9 @@ def _extract_errors(file_path: str) -> list[tuple[str, str, str | None, list[str
                     block = [line] if in_error else []
                 elif in_error and len(block) < _MAX_BLOCK_LINES:
                     block.append(line)
+                prev_lines.append(line)
+                if len(prev_lines) > _BPS_EXIT_CONTEXT:
+                    prev_lines.pop(0)
             if in_error and block:
                 parsed = _parse_block(block)
                 if parsed:
