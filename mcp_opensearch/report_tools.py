@@ -65,7 +65,6 @@ def format_log_summary_report(summary: dict, job_batch_id: str, log_type: str = 
         _SEP,
         f"JobBatchId:   {job_batch_id}",
         f"Run:          {summary.get('bps_run') or 'N/A'}",
-        f"JobBatchName: {summary.get('job_batch_name') or 'N/A'}",
         f"Analysis:     {analysis}",
         f"Generated:    {today}",
         "",
