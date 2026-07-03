@@ -36,8 +36,10 @@ _NUM = re.compile(r'\b\d+\b')                   # bare integers → <N>
 _SKIP_EXC = frozenset({'MPGraphExecutorError'})
 
 _TIMESTAMP = re.compile(r'\b(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?)')
+_BPS_EXIT = re.compile(r'^Command exited with code:\s*(\d+)')
 
 _MAX_BLOCK_LINES = 200  # cap per ERROR block to bound memory; covers deepest tracebacks
+_BPS_EXIT_CONTEXT = 5   # lines of context to include before the exit code line
 _KEY_MAX_LEN = 200
 
 
@@ -116,9 +118,19 @@ def _extract_errors(file_path: str) -> list[tuple[str, str, str | None, list[str
     results = []
     block: list[str] = []
     in_error = False
+    prev_lines: list[str] = []
     try:
         with open(file_path) as fobj:
             for line in fobj:
+                m = _BPS_EXIT.match(line)
+                if m:
+                    code = int(m.group(1))
+                    if code != 0:
+                        context = ''.join(prev_lines[-_BPS_EXIT_CONTEXT:]) + line
+                        results.append((
+                            f"SIGKILL: exit code {code}",
+                            context.rstrip(), None, [], [],
+                        ))
                 if _LOG_TAG.match(line):
                     if in_error and block:
                         parsed = _parse_block(block)
@@ -128,6 +140,9 @@ def _extract_errors(file_path: str) -> list[tuple[str, str, str | None, list[str
                     block = [line] if in_error else []
                 elif in_error and len(block) < _MAX_BLOCK_LINES:
                     block.append(line)
+                prev_lines.append(line)
+                if len(prev_lines) > _BPS_EXIT_CONTEXT:
+                    prev_lines.pop(0)
             if in_error and block:
                 parsed = _parse_block(block)
                 if parsed:
@@ -213,6 +228,8 @@ def job_log_summaries(
         has_host = 'LastRemoteHost' in df.columns
         has_signal = 'ExitBySignal' in df.columns
         has_memory = 'MemoryUsage' in df.columns and 'RequestMemory' in df.columns
+        has_exit_code = 'ExitCode' in df.columns
+        has_provisioned = 'MemoryUsage' in df.columns and 'MemoryProvisioned' in df.columns
 
         for _, row in df.iterrows():
             if has_signal and row.get('ExitBySignal') == True:  # noqa: E712
@@ -228,6 +245,32 @@ def job_log_summaries(
                         'ratio': round(mem_use / req_mem, 3),
                     })
 
+            raw_host = (row['LastRemoteHost'] or '') if has_host else ''
+            host = raw_host.split('@', 1)[-1] if '@' in raw_host else raw_host
+
+            # Synthesize an error entry for ExitCode 137 (SIGKILL) before
+            # attempting log file lookup: SIGKILL'd jobs often have no log
+            # file, and without this the failure would be silently dropped.
+            if has_exit_code and int(row.get('ExitCode', 0) or 0) == 137:
+                mem_use = _to_float(row.get('MemoryUsage')) if has_provisioned else 0.0
+                prov_mem = _to_float(row.get('MemoryProvisioned')) if has_provisioned else 0.0
+                mem_note = (f" mem={int(mem_use)}/{int(prov_mem)}MB"
+                            f" ({mem_use/prov_mem:.0%})"
+                            if prov_mem > 0 else "")
+                is_oom = prov_mem > 0 and mem_use / prov_mem > _MEM_PRESSURE_THRESHOLD
+                sigkill_key = ("OOMKill: ExitCode 137" if is_oom
+                               else "SIGKILL: ExitCode 137")
+                counts[sigkill_key] += 1
+                if host:
+                    host_counts[sigkill_key][host] += 1
+                if len(examples[sigkill_key]) < max_examples:
+                    examples[sigkill_key].append({
+                        "text": f"{sigkill_key}{mem_note}",
+                        "timestamp": None,
+                        "call_chain": [],
+                        "exception_chain": [],
+                    })
+
             tokens = row['Err'].split('.')
             tokens[-2] = '*'
             pattern = os.path.join(row['Iwd'], '.'.join(tokens))
@@ -240,9 +283,6 @@ def job_log_summaries(
 
             if len(example_log_paths) < max_examples:
                 example_log_paths.append(log_path)
-
-            raw_host = (row['LastRemoteHost'] or '') if has_host else ''
-            host = raw_host.split('@', 1)[-1] if '@' in raw_host else raw_host
 
             # Count each distinct error key at most once per job file; keep
             # the longest block as the example (prefers full tracebacks over
