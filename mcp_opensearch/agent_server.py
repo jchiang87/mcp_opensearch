@@ -105,7 +105,10 @@ def _get_agent() -> CodeAgent:
           b. OVERVIEW — a short paragraph summarising how many tasks were
              analysed, how many had errors, and the top-level picture.
           c. [paste TASKS WITH NO ERRORS section verbatim]
-          d. Failure sections — one section per failure category. Standard
+          d. [write a section header called "FAILURE ANALYSES" enclosed with
+             "================================================================"
+              line delimiters.]
+          e. Failure sections — one section per failure category. Standard
              categories are "INFRASTRUCTURE FAILURES (RETRIABLE)" and
              "SCIENTIFIC / ALGORITHMIC FAILURES (NOT RETRIABLE)". Add extra
              categories for anomalies that don't fit either (e.g.
@@ -128,8 +131,8 @@ def _get_agent() -> CodeAgent:
                flag this as a potential bad-node issue worth investigating.
              - If a task's per-task block shows non-zero signal kills or memory
                pressure, include a "RESOURCE EXHAUSTION" section for that task.
-          e. [paste SUMMARY TABLE section verbatim]
-          f. KEY FINDINGS — bullet list of the most important observations,
+          f. [paste SUMMARY TABLE section verbatim]
+          g. KEY FINDINGS — bullet list of the most important observations,
              distinguishing retriable from non-retriable failures and flagging
              any anomalies.
 
