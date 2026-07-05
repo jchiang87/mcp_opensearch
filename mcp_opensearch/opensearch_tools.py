@@ -1,7 +1,10 @@
 import os
+from collections import defaultdict
+from datetime import datetime
 import json
 from pathlib import Path
 from typing import Any
+import pandas as pd
 from opensearchpy import OpenSearch, helpers
 from smolagents import Tool
 from .utils import track_calls
@@ -11,6 +14,7 @@ __all__ = (
     "FlexibleSearchTool",
     "GetIndexInfoTool",
     "GetIndexMappingsTool",
+    "get_os_job_info"
 )
 
 
@@ -284,3 +288,71 @@ class FlexibleSearchTool(Tool):
     ) -> str:
         result = _flexible_search(index, query, limit, scan)
         return json.dumps(result)
+
+
+def get_os_job_info(job_batch_id, index="htcondor-history-v1", size=10000):
+    columns = ["JobBatchId", "ClusterId", "ProcId", "JobStartDate",
+               "JobCurrentStartDate", "Iwd",
+               "CompletionDate", "JobStatus", "bps_job_name",
+               "bps_job_label", "StartdName", "ExitCode", "Err", "QDate",
+               "RequestCpus", "CumulativeRemoteUserCpu",
+               "CumulativeRemoteSysCpu",
+               "RemoteWallClockTime", "ResidentSetSize", "RequestMemory",
+               "MemoryProvisioned", "NumJobStarts", "CumulativeSuspensionTime"]
+
+    body = {
+        'query': {
+            'bool': {
+                'filter': [
+                    {'terms': {'JobBatchId': [job_batch_id]}},
+                ]
+            }
+        },
+        '_source': columns
+    }
+
+    response = OPENSEARCH_CLIENT.search(
+        size=size,
+        body=body,
+        index=index,
+        scroll="1m",
+    )
+
+    data = defaultdict(list)
+    scroll_id = response['_scroll_id']
+    hits = response['hits']['hits']
+    while len(hits) > 0:
+        for item in hits:
+            row = item['_source']
+            if (row["RemoteWallClockTime"] <= 0 or
+                "bps_job_label" not in row or
+                row["JobStatus"] != 4):
+                continue
+            for column in columns:
+                if column not in row:
+                    value = None
+                else:
+                    value = row[column]
+                data[column].append(value)
+            start_ts = row.get('JobStartDate', 0)
+            start_dt = datetime.fromtimestamp(start_ts) if start_ts else None
+            data['start_dt'].append(start_dt)
+            end_ts = row.get('CompletionDate', 0)
+            end_dt = datetime.fromtimestamp(end_ts) if end_ts else None
+            data['end_dt'].append(end_dt)
+            # CPU efficiency calculation
+            cumulative_cpu = (row["CumulativeRemoteUserCpu"]
+                              + row["CumulativeRemoteSysCpu"])
+            cpu_efficiency = cumulative_cpu / row["RemoteWallClockTime"]
+            data['cpu_efficiency'].append(cpu_efficiency)
+            data['memory_request'].append(row["RequestMemory"]/1e3)  # GB
+            data['memory_provisioned'].append(row["MemoryProvisioned"]/1e3)  # GB
+            data['rss'].append(row["ResidentSetSize"]/1e6)  # GB
+        response = OPENSEARCH_CLIENT.scroll(
+            scroll_id=scroll_id,
+            scroll="1m",
+        )
+        scroll_id = response['_scroll_id']
+        hits = response['hits']['hits']
+    df0 = pd.DataFrame(data)
+    return df0
