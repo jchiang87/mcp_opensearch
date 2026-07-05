@@ -2,8 +2,8 @@ import os
 import re
 import glob
 from collections import defaultdict
-from htc_job_history import get_os_job_info
 from smolagents import tool
+from .opensearch_tools import get_os_job_info
 from .utils import track_calls
 
 _MEM_PRESSURE_THRESHOLD = 0.9

@@ -54,7 +54,7 @@ def _get_model() -> OpenAIServerModel:
 _agent: CodeAgent | None = None
 
 
-def _get_agent() -> CodeAgent:
+def _get_agent(verbosity_level: int = 0) -> CodeAgent:
     global _agent
     if _agent is not None:
         return _agent
@@ -126,6 +126,8 @@ def _get_agent() -> CodeAgent:
                log output alone can provide.
              - For each affected task, paste its per-task block verbatim from
                the PER-TASK ERROR DATA section.
+             - For each error type, provide the file path to the example error
+               log file.
              - If an error's host_counts show that failures are concentrated on
                one or a few nodes (e.g. >50% of errors from a single host),
                flag this as a potential bad-node issue worth investigating.
@@ -148,7 +150,7 @@ def _get_agent() -> CodeAgent:
           - Paste the formatter's sections verbatim; do not reformat or
             summarise them. The consistent layout is intentional.
         """,
-        verbosity_level=0,
+        verbosity_level=verbosity_level,
     )
     return _agent
 

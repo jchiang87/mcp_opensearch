@@ -291,8 +291,8 @@ class FlexibleSearchTool(Tool):
 
 
 def get_os_job_info(job_batch_id, index="htcondor-history-v1", size=10000):
-    columns = ["JobBatchId", "ClusterId", "ProcId", "JobStartDate",
-               "JobCurrentStartDate", "Iwd",
+    columns = ["JobBatchId", "bps_run", "ClusterId", "ProcId", "JobStartDate",
+               "JobCurrentStartDate", "Iwd", "LastRemoteHost",
                "CompletionDate", "JobStatus", "bps_job_name",
                "bps_job_label", "StartdName", "ExitCode", "Err", "QDate",
                "RequestCpus", "CumulativeRemoteUserCpu",
