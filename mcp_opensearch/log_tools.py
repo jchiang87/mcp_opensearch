@@ -184,12 +184,12 @@ def job_log_summaries(
                                                 "request_memory_mb": int,
                                                 "ratio": float}]},
                     },
-                    "example_log_paths": list[str],  # up to max_examples representative paths
                     "errors": {
                         error_key: {
                             "count": int,
                             "rate": float,
                             "host_counts": dict[str, int],  # hostname -> count; empty if unavailable
+                            "example_log_path": str | None,  # first log file exhibiting this error
                             "examples": list[{
                                 "text": str,
                                 "timestamp": str | None,  # ISO 8601 from the ERROR line
@@ -222,7 +222,7 @@ def job_log_summaries(
         counts: dict[str, int] = defaultdict(int)
         host_counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
         examples: dict[str, list[dict]] = defaultdict(list)
-        example_log_paths: list[str] = []
+        example_log_path: dict[str, str] = {}
         signal_kills: list[str] = []
         mem_pressure: list[dict] = []
         has_host = 'LastRemoteHost' in df.columns
@@ -281,9 +281,6 @@ def job_log_summaries(
             if not os.path.isfile(log_path):
                 continue
 
-            if len(example_log_paths) < max_examples:
-                example_log_paths.append(log_path)
-
             # Count each distinct error key at most once per job file; keep
             # the longest block as the example (prefers full tracebacks over
             # the single-line single_quantum_executor ERROR entries).
@@ -296,6 +293,7 @@ def job_log_summaries(
                 counts[key] += 1
                 if host:
                     host_counts[key][host] += 1
+                example_log_path.setdefault(key, log_path)
                 if len(examples[key]) < max_examples:
                     examples[key].append({
                         "text": text,
@@ -320,13 +318,13 @@ def job_log_summaries(
                     "examples": sorted(mem_pressure, key=lambda x: -x['ratio'])[:max_examples],
                 },
             },
-            "example_log_paths": example_log_paths,
             "errors": {
                 key: {
                     "count": counts[key],
                     "rate": round(counts[key] / n_sampled, 3),
                     "host_counts": dict(sorted(host_counts[key].items(),
                                                key=lambda x: -x[1])),
+                    "example_log_path": example_log_path.get(key),
                     "examples": examples[key],
                 }
                 for key in sorted(counts, key=lambda k: -counts[k])
@@ -368,10 +366,10 @@ def retried_job_log_summaries(
             "bps_run": str | None,
             "tasks": {bps_job_label: {
                 "total_jobs": int, "sampled_jobs": int,
-                "example_log_paths": list[str],
                 "errors": {error_key: {
                     "count": int, "rate": float,
                     "host_counts": dict[str, int],
+                    "example_log_path": str | None,
                     "examples": list[{"text": str, "timestamp": str | None,
                                       "call_chain": list[str],
                                       "exception_chain": list[str]}]
