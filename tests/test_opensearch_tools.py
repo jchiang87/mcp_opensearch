@@ -207,7 +207,7 @@ class TestRunAggregation:
 class TestTrackCalls:
     def test_creates_stats_file_on_first_call(self, tmp_path):
         stats_file = tmp_path / "counts.json"
-        with patch.object(ost, "STATS_FILE", stats_file):
+        with patch("mcp_opensearch.utils.STATS_FILE",stats_file):
             @ost.track_calls("mytool")
             def noop():
                 return 42
@@ -217,7 +217,7 @@ class TestTrackCalls:
 
     def test_increments_on_subsequent_calls(self, tmp_path):
         stats_file = tmp_path / "counts.json"
-        with patch.object(ost, "STATS_FILE", stats_file):
+        with patch("mcp_opensearch.utils.STATS_FILE",stats_file):
             @ost.track_calls("mytool")
             def noop():
                 return 42
@@ -229,7 +229,7 @@ class TestTrackCalls:
 
     def test_multiple_tools_tracked_independently(self, tmp_path):
         stats_file = tmp_path / "counts.json"
-        with patch.object(ost, "STATS_FILE", stats_file):
+        with patch("mcp_opensearch.utils.STATS_FILE",stats_file):
             @ost.track_calls("tool_a")
             def a():
                 pass
@@ -248,7 +248,7 @@ class TestTrackCalls:
     def test_handles_corrupt_json_gracefully(self, tmp_path):
         stats_file = tmp_path / "counts.json"
         stats_file.write_text("not valid json{{{")
-        with patch.object(ost, "STATS_FILE", stats_file):
+        with patch("mcp_opensearch.utils.STATS_FILE",stats_file):
             @ost.track_calls("mytool")
             def noop():
                 pass
@@ -258,7 +258,7 @@ class TestTrackCalls:
 
     def test_preserves_wrapped_function_return_value(self, tmp_path):
         stats_file = tmp_path / "counts.json"
-        with patch.object(ost, "STATS_FILE", stats_file):
+        with patch("mcp_opensearch.utils.STATS_FILE",stats_file):
             @ost.track_calls("mytool")
             def returns_value():
                 return {"answer": 42}
@@ -281,7 +281,7 @@ class TestFlexibleSearchToolForward:
         mock_client = MagicMock()
         mock_client.search.return_value = make_search_response(docs)
         with patch.object(ost, "OPENSEARCH_CLIENT", mock_client), \
-             patch.object(ost, "STATS_FILE", tmp_path / "counts.json"):
+             patch("mcp_opensearch.utils.STATS_FILE",tmp_path / "counts.json"):
             output = ost.FlexibleSearchTool().forward("idx", {"jobstatus": "finished"})
         parsed = json.loads(output)
         assert parsed["result"] == docs
@@ -290,7 +290,7 @@ class TestFlexibleSearchToolForward:
     def test_scan_parameter_forwarded(self, tmp_path):
         mock_internal = MagicMock(return_value={"result": [], "total": 0, "error": ""})
         with patch.object(ost, "_flexible_search", mock_internal), \
-             patch.object(ost, "STATS_FILE", tmp_path / "counts.json"):
+             patch("mcp_opensearch.utils.STATS_FILE",tmp_path / "counts.json"):
             ost.FlexibleSearchTool().forward("idx", {"jobstatus": "finished"}, limit=5, scan=True)
         mock_internal.assert_called_once_with("idx", {"jobstatus": "finished"}, 5, True)
 
@@ -298,7 +298,7 @@ class TestFlexibleSearchToolForward:
         mock_client = MagicMock()
         mock_client.search.side_effect = Exception("boom")
         with patch.object(ost, "OPENSEARCH_CLIENT", mock_client), \
-             patch.object(ost, "STATS_FILE", tmp_path / "counts.json"):
+             patch("mcp_opensearch.utils.STATS_FILE",tmp_path / "counts.json"):
             output = ost.FlexibleSearchTool().forward("idx", {"jobstatus": "finished"})
         parsed = json.loads(output)
         assert "OpenSearch Error:" in parsed["error"]
@@ -312,7 +312,7 @@ class TestAggregationToolForward:
     def test_returns_json_string(self, tmp_path):
         mock_internal = MagicMock(return_value={"aggregations": {}, "error": ""})
         with patch.object(ost, "_run_aggregation", mock_internal), \
-             patch.object(ost, "STATS_FILE", tmp_path / "counts.json"):
+             patch("mcp_opensearch.utils.STATS_FILE",tmp_path / "counts.json"):
             output = ost.AggregationTool().forward("idx", SAMPLE_AGGS)
         assert isinstance(output, str)
         json.loads(output)
@@ -320,13 +320,13 @@ class TestAggregationToolForward:
     def test_query_parameter_forwarded(self, tmp_path):
         mock_internal = MagicMock(return_value={"aggregations": {}, "error": ""})
         with patch.object(ost, "_run_aggregation", mock_internal), \
-             patch.object(ost, "STATS_FILE", tmp_path / "counts.json"):
+             patch("mcp_opensearch.utils.STATS_FILE",tmp_path / "counts.json"):
             ost.AggregationTool().forward("idx", SAMPLE_AGGS, query={"jobstatus": "finished"})
         mock_internal.assert_called_once_with("idx", SAMPLE_AGGS, {"jobstatus": "finished"})
 
     def test_no_query_defaults_to_none(self, tmp_path):
         mock_internal = MagicMock(return_value={"aggregations": {}, "error": ""})
         with patch.object(ost, "_run_aggregation", mock_internal), \
-             patch.object(ost, "STATS_FILE", tmp_path / "counts.json"):
+             patch("mcp_opensearch.utils.STATS_FILE",tmp_path / "counts.json"):
             ost.AggregationTool().forward("idx", SAMPLE_AGGS)
         mock_internal.assert_called_once_with("idx", SAMPLE_AGGS, None)

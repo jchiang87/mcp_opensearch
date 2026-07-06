@@ -345,7 +345,7 @@ class TestParseBlock:
             "ERROR 2026-06-24 executor.py:316 - Execution failed. "
             "Exception ValueError: something bad\n"
         ]
-        _, _, call_chain, _ = lt._parse_block(lines)
+        _, _, _, call_chain, _ = lt._parse_block(lines)
         assert call_chain == []
 
     def test_traceback_block_call_chain_populated_for_lsst_frames(self):
@@ -354,7 +354,7 @@ class TestParseBlock:
             '  File "/lsst/pipe/base/task.py", line 42, in runQuantum\n',
             "ValueError: bad\n",
         ]
-        _, _, call_chain, _ = lt._parse_block(lines)
+        _, _, _, call_chain, _ = lt._parse_block(lines)
         assert call_chain == ["task.py:runQuantum"]
 
     def test_exception_chain_populated(self):
@@ -364,7 +364,7 @@ class TestParseBlock:
             "  File 'x.py', line 1\n",
             "ValueError: something bad\n",
         ]
-        _, _, _, exc_chain = lt._parse_block(lines)
+        _, _, _, _, exc_chain = lt._parse_block(lines)
         assert len(exc_chain) == 1
         assert exc_chain[0].startswith("ValueError:")
 
@@ -453,7 +453,7 @@ class TestExtractErrors:
         log.write_text(LOG_WITH_LSST_FRAMES)
         results = lt._extract_errors(str(log))
         assert len(results) == 1
-        _, _, call_chain, _ = results[0]
+        _, _, _, call_chain, _ = results[0]
         assert "task.py:runQuantum" in call_chain
         assert "fit_turbulence.py:run" in call_chain
 
@@ -462,7 +462,7 @@ class TestExtractErrors:
         log.write_text(LOG_CHAINED_EXCEPTION)
         results = lt._extract_errors(str(log))
         assert len(results) == 1
-        _, _, _, exc_chain = results[0]
+        _, _, _, _, exc_chain = results[0]
         assert any(e.startswith("OSError:") for e in exc_chain)
         assert any(e.startswith("RuntimeError:") for e in exc_chain)
 
@@ -474,7 +474,7 @@ class TestExtractErrors:
 class TestJobLogSummaries:
     def _run(self, df, tmp_path, **kwargs):
         with patch("mcp_opensearch.log_tools.get_os_job_info", return_value=df):
-            return lt.job_log_summaries("batch1", "idx", "ExitCode != 0", **kwargs)
+            return lt.job_log_summaries("batch1", "idx", "ExitCode != 0", **kwargs)["tasks"]
 
     def test_output_structure(self, tmp_path):
         write_log(tmp_path, "job.1.0.out", LOG_SINGLE_INLINE)
