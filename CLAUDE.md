@@ -121,7 +121,7 @@ Unit tests live in `tests/test_opensearch_tools.py` (34 tests). They cover DSL b
 ## Requirements
 
 - Python >= 3.10
-- Runtime dependencies: `mcp`, `smolagents`, `opensearch-py`, `htc_job_history`, `numpy`
+- Runtime dependencies: `mcp`, `smolagents`, `opensearch-py`, `httpx`, `openai`, `pandas`
 - Dev dependencies: `pytest` (install with `pip install -e ".[dev]"`)
 
 ## MCP Registration

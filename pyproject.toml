@@ -11,6 +11,9 @@ dependencies = [
     "mcp",
     "smolagents",
     "opensearch-py",
+    "httpx",
+    "openai",
+    "pandas",
 ]
 
 [project.optional-dependencies]
