@@ -13,7 +13,8 @@ import os
 import json
 import logging
 from pathlib import Path
-
+import httpx
+from openai import OpenAI
 from mcp.server.fastmcp import FastMCP
 from smolagents import CodeAgent, OpenAIServerModel
 from .log_tools import retried_job_log_summaries
@@ -33,18 +34,32 @@ logging.getLogger("smolagents").setLevel(logging.FATAL)
 # ---------------------------------------------------------------------------
 
 def _get_model() -> OpenAIServerModel:
-    settings = json.loads(
-        (Path("~/.claude/settings.json").expanduser()).read_text()
-    )
-    env = settings["env"]
-    default_model_id = os.environ.get("ANTHROPIC_DEFAULT_MODEL",
-                                      "claude-sonnet-4-6")
-    model_id = env.get("ANTHROPIC_DEFAULT_SONNET_MODEL", default_model_id)
-    return OpenAIServerModel(
-        model_id=model_id,
-        api_base=env["ANTHROPIC_BASE_URL"],
-        api_key=env["ANTHROPIC_AUTH_TOKEN"],
-    )
+    if "USE_LOCAL_LLM" in os.environ:
+        custom_http_client = httpx.Client(trust_env=False)
+
+        openai_client = OpenAI(
+            base_url=os.environ["LOCAL_LLM_BASE_URL"],
+            api_key="placeholder",
+            http_client=custom_http_client
+        )
+
+        return OpenAIServerModel(
+            model_id=os.environ["LOCAL_LLM_MODEL_ID"],
+            client=openai_client,
+        )
+    else:
+        settings = json.loads(
+            (Path("~/.claude/settings.json").expanduser()).read_text()
+        )
+        env = settings["env"]
+        default_model_id = os.environ.get("ANTHROPIC_DEFAULT_MODEL",
+                                          "claude-sonnet-4-6")
+        model_id = env.get("ANTHROPIC_DEFAULT_SONNET_MODEL", default_model_id)
+        return OpenAIServerModel(
+            model_id=model_id,
+            api_base=env["ANTHROPIC_BASE_URL"],
+            api_key=env["ANTHROPIC_AUTH_TOKEN"],
+        )
 
 
 # ---------------------------------------------------------------------------

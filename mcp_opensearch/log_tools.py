@@ -31,6 +31,9 @@ _UUID = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 _LSST_CLASS = re.compile(r'\blsst(?:\.\w+)+')  # lsst.x.y.ClassName → <lsst_class>
 _PATH = re.compile(r'/\S+')                     # /absolute/path → <path>
 _NUM = re.compile(r'\b\d+\b')                   # bare integers → <N>
+# Butler DatasetRef "typename@{dim: val, ...} [sc=X] (run=... id=...)" → <dataset_ref>
+# Collapses per-dataset-type/band variants of "Failed to serialize dataset X" into one key.
+_DATASET_REF = re.compile(r'\b\w+@\{[^}]*\}(?:\s+\[sc=[^\]]+\])?(?:\s+\([^)]*\))?')
 
 # Skip these exception classes; they are uninformative wrappers.
 _SKIP_EXC = frozenset({'MPGraphExecutorError'})
@@ -46,6 +49,7 @@ _KEY_MAX_LEN = 200
 def _normalize(msg: str) -> str:
     msg = _UUID.sub('<uuid>', msg)
     msg = _LSST_CLASS.sub('<lsst_class>', msg)
+    msg = _DATASET_REF.sub('<dataset_ref>', msg)
     msg = _PATH.sub('<path>', msg)
     msg = _NUM.sub('<N>', msg)
     return msg[:_KEY_MAX_LEN].strip()
