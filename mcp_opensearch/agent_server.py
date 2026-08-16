@@ -17,7 +17,7 @@ import httpx
 from openai import OpenAI
 from mcp.server.fastmcp import FastMCP
 from smolagents import CodeAgent, OpenAIServerModel
-from .log_tools import retried_job_log_summaries
+from .log_tools import failed_job_log_summaries, retried_job_log_summaries
 from .report_tools import format_log_summary_report, write_report
 from .opensearch_tools import (
     AggregationTool,
@@ -75,6 +75,7 @@ def _get_agent(verbosity_level: int = 0) -> CodeAgent:
         return _agent
 
     tools = [
+        failed_job_log_summaries,
         retried_job_log_summaries,
         format_log_summary_report,
         write_report,
@@ -102,6 +103,14 @@ def _get_agent(verbosity_level: int = 0) -> CodeAgent:
         workflow:
 
         STEP 1 — Fetch the log summary:
+          For failed jobs:
+          Call `failed_job_log_summaries(job_batch_id)`. This targets jobs
+          with ExitCode != 0, reading the last log file to capture the
+          errors that resulted in a non-zero exit code.
+          IMPORTANT: always use this tool for log access — never locate or
+          read log files directly via the filesystem.
+
+          For retried jobs:
           Call `retried_job_log_summaries(job_batch_id)`. This targets jobs
           with NumJobStarts > 1, reading the second-to-last log to capture
           failing retry attempts. It surfaces transient infrastructure failures
@@ -110,7 +119,8 @@ def _get_agent(verbosity_level: int = 0) -> CodeAgent:
           read log files directly via the filesystem.
 
         STEP 2 — Render the structural skeleton:
-          Call `format_log_summary_report(summary, job_batch_id, log_type="retried")`.
+          Call `format_log_summary_report(summary, job_batch_id, log_type="failed")` for failed jobs.
+          Call `format_log_summary_report(summary, job_batch_id, log_type="retried")` for retried jobs.
           This produces four labelled
           sections: REPORT HEADER, TASKS WITH NO ERRORS, PER-TASK ERROR DATA,
           and SUMMARY TABLE.

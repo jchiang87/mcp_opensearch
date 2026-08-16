@@ -17,7 +17,8 @@ def _to_float(val, default=0.0) -> float:
         return default
 
 
-__all__ = ("retried_job_log_summaries",)
+__all__ = ("failed_job_log_summaries",
+           "retried_job_log_summaries",)
 
 # --- log parsing ---
 
@@ -342,6 +343,44 @@ def job_log_summaries(
 
 
 # --- public tools ---
+
+@tool
+@track_calls("failed_job_log_summaries")
+def failed_job_log_summaries(
+        job_batch_id: str,
+        index: str = 'htcondor-history-v1',
+        max_examples: int = 3,
+        max_jobs: int = 500,
+) -> dict:
+    """Return tabulated error summaries for failed jobs in a batch.
+
+    Reads up to max_jobs log files per bps_job_label (random sample if more
+    exist), groups errors by normalized exception type, and returns counts
+    with representative examples.
+
+    Args:
+        job_batch_id: The JobBatchId for the cluster.
+        index: OpenSearch index. Default: 'htcondor-history-v1'
+        max_examples: Max example error blocks per error type. Default: 3
+        max_jobs: Max log files to read per task; random sample applied when
+            exceeded. Default: 500
+
+    Returns:
+        dict mapping bps_job_label -> {
+            "total_jobs": int,
+            "sampled_jobs": int,
+            "errors": {error_key: {
+                "count": int, "rate": float,
+                "examples": list[{"text": str, "call_chain": list[str],
+                                  "exception_chain": list[str]}]
+            }}
+        }
+        rate = count / sampled_jobs (estimated true rate when sampled).
+    """
+    return job_log_summaries(job_batch_id, index, "ExitCode != 0",
+                             last_log_index=-1, max_examples=max_examples,
+                             max_jobs=max_jobs)
+
 
 @tool
 @track_calls("retried_job_log_summaries")
