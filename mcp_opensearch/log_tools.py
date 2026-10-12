@@ -165,7 +165,7 @@ def job_log_summaries(
     query: str,
     last_log_index: int = -1,
     max_examples: int = 3,
-    max_jobs: int = 500,
+    max_jobs: int = 100,
 ) -> dict:
     """Scan job logs and tabulate error types with examples, per bps_job_label.
 
@@ -350,7 +350,7 @@ def failed_job_log_summaries(
         job_batch_id: str,
         index: str = 'htcondor-history-v1',
         max_examples: int = 3,
-        max_jobs: int = 500,
+        max_jobs: int = 100,
 ) -> dict:
     """Return tabulated error summaries for failed jobs in a batch.
 
@@ -363,7 +363,7 @@ def failed_job_log_summaries(
         index: OpenSearch index. Default: 'htcondor-history-v1'
         max_examples: Max example error blocks per error type. Default: 3
         max_jobs: Max log files to read per task; random sample applied when
-            exceeded. Default: 500
+            exceeded. Default: 100
 
     Returns:
         dict mapping bps_job_label -> {
@@ -388,7 +388,7 @@ def retried_job_log_summaries(
         job_batch_id: str,
         index: str = 'htcondor-history-v1',
         max_examples: int = 3,
-        max_jobs: int = 500,
+        max_jobs: int = 100,
 ) -> dict:
     """Return tabulated error summaries for retried jobs in a batch.
 
@@ -402,7 +402,7 @@ def retried_job_log_summaries(
         index: OpenSearch index. Default: 'htcondor-history-v1'
         max_examples: Max example error blocks per error type. Default: 3
         max_jobs: Max log files to read per task; random sample applied when
-            exceeded. Default: 500
+            exceeded. Default: 100
 
     Returns:
         {
