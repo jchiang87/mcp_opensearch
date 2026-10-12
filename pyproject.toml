@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "mcp-opensearch"
 version = "0.1.0"
-description = "FastMCP server exposing a smolagents CodeAgent for natural-language OpenSearch queries"
+description = "MCPServer exposing a smolagents CodeAgent for natural-language OpenSearch queries"
 requires-python = ">=3.10"
 dependencies = [
     "mcp",

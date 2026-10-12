@@ -1,6 +1,6 @@
 # mcp-opensearch
 
-FastMCP server that exposes a [smolagents](https://github.com/huggingface/smolagents) `CodeAgent` as a single MCP tool for natural-language OpenSearch queries.
+MCPServer that exposes a [smolagents](https://github.com/huggingface/smolagents) `CodeAgent` as a single MCP tool for natural-language OpenSearch queries.
 
 ## Requirements
 

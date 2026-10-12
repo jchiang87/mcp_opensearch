@@ -1,4 +1,4 @@
-"""FastMCP server that exposes a smolagents CodeAgent as a single MCP tool.
+"""MCPServer instance that exposes a smolagents CodeAgent as a single MCP tool.
 
 The agent has access to an OpenSearch flexible search tool, enabling
 natural-language queries about WMS job data stored in OpenSearch.
@@ -15,7 +15,7 @@ import logging
 from pathlib import Path
 import httpx
 from openai import OpenAI
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from smolagents import CodeAgent, OpenAIServerModel
 from .log_tools import failed_job_log_summaries, retried_job_log_summaries
 from .report_tools import format_log_summary_report, write_report
@@ -181,10 +181,10 @@ def _get_agent(verbosity_level: int = 0) -> CodeAgent:
 
 
 # ---------------------------------------------------------------------------
-# FastMCP server
+# MCPServer instance
 # ---------------------------------------------------------------------------
 
-mcp = FastMCP(
+mcp = MCPServer(
     "opensearch-agent",
     instructions=(
         "A CodeAgent that queries WMS job data in OpenSearch. "

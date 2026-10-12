@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Project Does
 
-`mcp-opensearch` is a FastMCP server that wraps a `smolagents` `CodeAgent` as a single MCP tool. It enables natural-language queries against an OpenSearch cluster (specifically WMS job data) and HTCondor job logs, bridging Claude's MCP protocol to OpenSearch via a multi-step reasoning agent.
+`mcp-opensearch` is a MCPServer that wraps a `smolagents` `CodeAgent` as a single MCP tool. It enables natural-language queries against an OpenSearch cluster (specifically WMS job data) and HTCondor job logs, bridging Claude's MCP protocol to OpenSearch via a multi-step reasoning agent.
 
 ## Installation & Running
 
@@ -44,7 +44,7 @@ MCP Client (e.g. Claude Code)
                     └── GetIndexMappingsTool      ← index field mappings
 ```
 
-**`mcp_opensearch/agent_server.py`** — FastMCP server setup, lazy-loads the `CodeAgent` singleton on first call, defines the `run_query` MCP tool.
+**`mcp_opensearch/agent_server.py`** — MCPServer setup, lazy-loads the `CodeAgent` singleton on first call, defines the `run_query` MCP tool.
 
 **`mcp_opensearch/opensearch_tools.py`** — Four `smolagents` Tool subclasses. `FlexibleSearchTool` builds DSL queries supporting exact match, set membership (`terms`), and range filters combined with AND logic. `AggregationTool` runs OpenSearch aggregation queries (e.g. `date_histogram`, `terms`, `stats`) with `size=0`. All tool calls are tracked via a decorator that appends counts to `tool_call_counts.json` in the server's working directory (`Path.cwd()` at import time).
 
